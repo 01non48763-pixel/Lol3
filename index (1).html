@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin - Barraquinha da Morena</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+    body { background: #eef7f1; color: #102a1c; padding: 16px; min-height: 100vh; }
+    .box { max-width: 640px; margin: 0 auto; background: #fff; border-radius: 16px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+    h1 { font-size: 20px; color: #064e3b; margin-bottom: 6px; }
+    p { font-size: 13px; color: #476657; margin-bottom: 14px; }
+    input { width: 100%; padding: 10px; border: 1px solid #bfd8c8; border-radius: 8px; font-size: 14px; margin-bottom: 10px; }
+    button { background: #047857; color: #fff; border: none; border-radius: 8px; padding: 10px 14px; font-weight: bold; cursor: pointer; font-size: 14px; }
+    button:active { background: #064e3b; }
+    .btn-sm { padding: 6px 10px; font-size: 12px; margin-left: 6px; }
+    .top-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    .badge { font-size: 12px; background: #dcfce7; color: #14532d; padding: 5px 10px; border-radius: 999px; font-weight: bold; }
+    .pedido { border: 1px solid #cde3d5; background: #f9fdfb; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+    .pedido-topo { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-weight: bold; }
+    .status { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: #fef3c7; color: #92400e; }
+    .status.pronto { background: #dcfce7; color: #14532d; }
+    .info { font-size: 13px; color: #102a1c; margin-bottom: 4px; }
+    .data { font-size: 11px; color: #476657; margin-bottom: 10px; }
+    .err { color: #991b1b; font-size: 13px; font-weight: bold; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="box" id="loginBox">
+    <h1>Painel Admin - Barraquinha da Morena</h1>
+    <p>Digite o PIN para acessar os pedidos em tempo real.</p>
+    <input type="password" id="pinInput" placeholder="PIN do administrador" />
+    <button onclick="entrar()">Entrar</button>
+    <div class="err" id="loginErr"></div>
+  </div>
+
+  <div class="box" id="painelBox" style="display: none;">
+    <div class="top-bar">
+      <div>
+        <h1>Pedidos - Barraquinha da Morena</h1>
+        <p style="margin: 0;">Atualização automática a cada 3 segundos</p>
+      </div>
+      <span class="badge" id="syncStatus">Conectado</span>
+    </div>
+
+    <div id="listaPedidos">Carregando pedidos...</div>
+  </div>
+
+  <script>
+    const FIREBASE_URL = 'https://barraquinha-49cdc-default-rtdb.firebaseio.com';
+    const ADMIN_PIN = '1234';
+    let loopTimer = null;
+
+    function entrar() {
+      const pin = document.getElementById('pinInput').value.trim();
+      const err = document.getElementById('loginErr');
+
+      if (pin !== ADMIN_PIN) {
+        err.textContent = 'PIN incorreto.';
+        return;
+      }
+
+      err.textContent = '';
+      document.getElementById('loginBox').style.display = 'none';
+      document.getElementById('painelBox').style.display = 'block';
+
+      carregarPedidos();
+      loopTimer = setInterval(carregarPedidos, 3000);
+    }
+
+    async function carregarPedidos() {
+      const container = document.getElementById('listaPedidos');
+      const badge = document.getElementById('syncStatus');
+
+      try {
+        const res = await fetch(FIREBASE_URL + '/pedidos.json');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+
+        badge.textContent = 'Sincronizado';
+
+        if (!data) {
+          container.innerHTML = '<p>Nenhum pedido recebido ainda.</p>';
+          return;
+        }
+
+        const lista = Object.entries(data)
+          .map(([key, value]) => ({ key, ...value }))
+          .reverse();
+
+        container.innerHTML = lista.map(p => `
+          <div class="pedido">
+            <div class="pedido-topo">
+              <span>${p.id || 'Pedido'} — ${p.cliente || 'Cliente'}</span>
+              <span class="status ${p.status === 'Concluído' ? 'pronto' : ''}">${p.status || 'Pendente'}</span>
+            </div>
+            <div class="info"><strong>Item:</strong> ${p.item || 'Tomate Teste'} (${p.total || 'R$ 1,00'})</div>
+            <div class="info"><strong>Endereço:</strong> ${p.endereco || '-'}</div>
+            <div class="data">${p.data || ''}</div>
+            <div>
+              <button class="btn-sm" onclick="atualizarStatus('${p.key}', 'Concluído')">Marcar Concluído</button>
+              <button class="btn-sm" style="background:#476657;" onclick="atualizarStatus('${p.key}', 'Pendente')">Pendente</button>
+            </div>
+          </div>
+        `).join('');
+      } catch (e) {
+        badge.textContent = 'Erro de conexão';
+        container.innerHTML = '<p class="err">Não foi possível carregar os pedidos do Firebase.</p>';
+      }
+    }
+
+    async function atualizarStatus(key, novoStatus) {
+      try {
+        await fetch(`${FIREBASE_URL}/pedidos/${key}.json`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: novoStatus })
+        });
+        carregarPedidos();
+      } catch (e) {
+        alert('Erro ao atualizar status do pedido.');
+      }
+    }
+  </script>
+</body>
+</html>
